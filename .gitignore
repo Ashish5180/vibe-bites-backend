@@ -105,3 +105,4 @@ dist/
 # Uploads
 uploads/
 public/uploads/
+node_modules/
