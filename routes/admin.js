@@ -14,84 +14,149 @@ router.use(admin);
 // ==================== DASHBOARD STATS ====================
 router.get('/dashboard', async (req, res) => {
   try {
+    console.log('Dashboard route hit by user:', req.user?.email, 'role:', req.user?.role);
+    
     const today = new Date();
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
     const startOfYear = new Date(today.getFullYear(), 0, 1);
 
-    // Get counts
-    const totalUsers = await User.countDocuments({ role: 'user' });
-    const totalProducts = await Product.countDocuments();
-    const totalOrders = await Order.countDocuments();
-    const totalRevenue = await Order.aggregate([
-      { $match: { orderStatus: { $in: ['delivered'] } } },
-      { $group: { _id: null, total: { $sum: '$total' } } }
-    ]);
-
-    // Monthly stats
-    const monthlyOrders = await Order.countDocuments({
-      createdAt: { $gte: startOfMonth }
-    });
-    const monthlyRevenue = await Order.aggregate([
-      { 
-        $match: { 
-          createdAt: { $gte: startOfMonth },
-          orderStatus: { $in: ['delivered'] }
-        } 
-      },
-      { $group: { _id: null, total: { $sum: '$total' } } }
-    ]);
-
-    // Recent orders
-    const recentOrders = await Order.find()
-      .populate('user', 'firstName lastName email')
-      .select('orderNumber total orderStatus paymentStatus createdAt')
-      .sort({ createdAt: -1 })
-      .limit(5);
-
-    // Top selling products
-    const topProducts = await Order.aggregate([
-      { $unwind: '$items' },
-      {
-        $group: {
-          _id: '$items.product',
-          totalSold: { $sum: '$items.quantity' },
-          totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } }
-        }
-      },
-      { $sort: { totalSold: -1 } },
-      { $limit: 5 },
-      {
-        $lookup: {
-          from: 'products',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'product'
-        }
-      },
-      { $unwind: '$product' }
-    ]);
-
-    // Low stock alerts
-    const lowStockProducts = await Product.find({
-      $expr: {
-        $lt: [
-          { $sum: '$sizes.stock' },
-          10 // Alert when total stock is below 10
-        ]
-      }
-    }).select('name sizes').limit(20);
-
-    const outOfStockProducts = await Product.find({
-      $expr: {
-        $eq: [
-          { $sum: '$sizes.stock' },
-          0
-        ]
-      }
-    }).select('name sizes').limit(20);
-
+    // Get counts with error handling for each query
+    let totalUsers, totalProducts, totalOrders, totalRevenue;
     
-    res.json({
+    try {
+      totalUsers = await User.countDocuments({ role: 'user' });
+    } catch (error) {
+      console.error('Error counting users:', error);
+      totalUsers = 0;
+    }
+
+    try {
+      totalProducts = await Product.countDocuments();
+    } catch (error) {
+      console.error('Error counting products:', error);
+      totalProducts = 0;
+    }
+
+    try {
+      totalOrders = await Order.countDocuments();
+    } catch (error) {
+      console.error('Error counting orders:', error);
+      totalOrders = 0;
+    }
+
+    try {
+      const revenueResult = await Order.aggregate([
+        { $match: { orderStatus: { $in: ['delivered'] } } },
+        { $group: { _id: null, total: { $sum: '$total' } } }
+      ]);
+      totalRevenue = revenueResult;
+    } catch (error) {
+      console.error('Error calculating total revenue:', error);
+      totalRevenue = [];
+    }
+
+    // Monthly stats with error handling
+    let monthlyOrders, monthlyRevenue;
+    
+    try {
+      monthlyOrders = await Order.countDocuments({
+        createdAt: { $gte: startOfMonth }
+      });
+    } catch (error) {
+      console.error('Error counting monthly orders:', error);
+      monthlyOrders = 0;
+    }
+
+    try {
+      const monthlyRevenueResult = await Order.aggregate([
+        { 
+          $match: { 
+            createdAt: { $gte: startOfMonth },
+            orderStatus: { $in: ['delivered'] }
+          } 
+        },
+        { $group: { _id: null, total: { $sum: '$total' } } }
+      ]);
+      monthlyRevenue = monthlyRevenueResult;
+    } catch (error) {
+      console.error('Error calculating monthly revenue:', error);
+      monthlyRevenue = [];
+    }
+
+    // Recent orders with error handling
+    let recentOrders;
+    try {
+      recentOrders = await Order.find()
+        .populate('user', 'firstName lastName email')
+        .select('orderNumber total orderStatus paymentStatus createdAt')
+        .sort({ createdAt: -1 })
+        .limit(5);
+    } catch (error) {
+      console.error('Error fetching recent orders:', error);
+      recentOrders = [];
+    }
+
+    // Top selling products with error handling
+    let topProducts;
+    try {
+      topProducts = await Order.aggregate([
+        { $unwind: '$items' },
+        {
+          $group: {
+            _id: '$items.product',
+            totalSold: { $sum: '$items.quantity' },
+            totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } }
+          }
+        },
+        { $sort: { totalSold: -1 } },
+        { $limit: 5 },
+        {
+          $lookup: {
+            from: 'products',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'product'
+          }
+        },
+        { $unwind: '$product' }
+      ]);
+    } catch (error) {
+      console.error('Error fetching top products:', error);
+      topProducts = [];
+    }
+
+    // Low stock alerts with error handling
+    let lowStockProducts, outOfStockProducts;
+    
+    try {
+      lowStockProducts = await Product.find({
+        $expr: {
+          $lt: [
+            { $sum: '$sizes.stock' },
+            10 // Alert when total stock is below 10
+          ]
+        }
+      }).select('name sizes').limit(20);
+    } catch (error) {
+      console.error('Error fetching low stock products:', error);
+      lowStockProducts = [];
+    }
+
+    try {
+      outOfStockProducts = await Product.find({
+        $expr: {
+          $eq: [
+            { $sum: '$sizes.stock' },
+            0
+          ]
+        }
+      }).select('name sizes').limit(20);
+    } catch (error) {
+      console.error('Error fetching out of stock products:', error);
+      outOfStockProducts = [];
+    }
+
+    const responseData = {
       success: true,
       data: {
         stats: {
@@ -109,7 +174,10 @@ router.get('/dashboard', async (req, res) => {
           outOfStockProducts
         }
       }
-    });
+    };
+
+    console.log('Dashboard response data:', JSON.stringify(responseData, null, 2));
+    res.json(responseData);
   } catch (error) {
     logger.error('Dashboard stats error:', error);
     console.error('Dashboard stats error:', error.stack || error);
@@ -616,7 +684,7 @@ router.get('/analytics/sales', async (req, res) => {
           total: { $sum: '$total' }
         }
       }
-    ])
+    ]);
 
     res.json({
       success: true,
